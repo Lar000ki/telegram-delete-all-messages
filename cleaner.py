@@ -1,6 +1,7 @@
 import os
 import json
 
+import asyncio
 from time import sleep
 
 from pyrogram import Client
@@ -8,27 +9,12 @@ from pyrogram.raw.functions.messages import Search
 from pyrogram.raw.types import InputPeerSelf, InputMessagesFilterEmpty
 from pyrogram.raw.types.messages import ChannelMessages
 from pyrogram.errors import FloodWait, UnknownError
+from pyrogram.raw import functions
 
-cachePath = os.path.abspath(__file__)
-cachePath = os.path.dirname(cachePath)
-cachePath = os.path.join(cachePath, "cache")
-
-if os.path.exists(cachePath):
-    with open(cachePath, "r") as cacheFile:
-        cache = json.loads(cacheFile.read())
-    
-    API_ID = cache["API_ID"]
-    API_HASH = cache["API_HASH"]
-else:
-    API_ID = os.getenv('API_ID', None) or int(input('Enter your Telegram API id: '))
-    API_HASH = os.getenv('API_HASH', None) or input('Enter your Telegram API hash: ')
+API_ID = os.getenv('API_ID', None) or int(input('Enter your Telegram API id: '))
+API_HASH = os.getenv('API_HASH', None) or input('Enter your Telegram API hash: ')
 
 app = Client("client", api_id=API_ID, api_hash=API_HASH)
-
-if not os.path.exists(cachePath):
-    with open(cachePath, "w") as cacheFile:
-        cache = {"API_ID": API_ID, "API_HASH": API_HASH}
-        cacheFile.write(json.dumps(cache))
 
 
 class Cleaner:
@@ -61,7 +47,7 @@ class Cleaner:
 
     async def select_groups(self, recursive=0):
         chats = await self.get_all_chats()
-        groups = [c for c in chats if c.type.name in ('GROUP, SUPERGROUP')]
+        groups = [c for c in chats if c.type.name in ('GROUP', 'SUPERGROUP', 'PRIVATE')]
 
         print('Delete all your messages in')
         for i, group in enumerate(groups):
@@ -81,11 +67,6 @@ class Cleaner:
                 exit(-1)
 
             if n == len(groups) + 1:
-                print('\nTHIS WILL DELETE ALL YOUR MESSSAGES IN ALL GROUPS!')
-                answer = input('Please type "I understand" to proceed: ')
-                if answer.upper() != 'I UNDERSTAND':
-                    print('Better safe than sorry. Aborting...')
-                    exit(-1)
                 self.chats = groups
                 break
             else:
@@ -113,6 +94,7 @@ class Cleaner:
                 add_offset += self.search_chunk_size
 
             await self.delete_messages(chat_id=chat.id, message_ids=message_ids)
+            await self.remove_my_reactions(chat_id=chat.id)
 
     async def delete_messages(self, chat_id, message_ids):
         print(f'Deleting {len(message_ids)} messages with message IDs:')
@@ -131,6 +113,50 @@ class Cleaner:
             async for message in app.search_messages(chat_id=chat_id, offset=add_offset, from_user="me", limit=100):
                 messages.append(message)
             return messages
+
+    async def remove_my_reactions(self, chat_id, limit_per_chat=1000):
+        print(f"Removing my reactions in chat {chat_id} ...")
+        async with app:
+            count = 0
+            async for message in app.get_chat_history(chat_id):
+
+                if count >= limit_per_chat:
+                    print(f"Reached limit {limit_per_chat} msg in chat {chat_id}, stopping.")
+                    break
+
+                await asyncio.sleep(0.1)
+                count += 1
+                reactions_obj = getattr(message, "reactions", None)
+                if not reactions_obj:
+                    continue
+
+                recs = getattr(reactions_obj, "reactions", None)
+                if recs is None:
+                    if isinstance(reactions_obj, list):
+                        recs = reactions_obj
+                    else:
+                        recs = []
+
+                my_reacted = False
+                for rc in recs:
+                    if getattr(rc, "chosen_order", None) is not None:
+                        my_reacted = True
+                        break
+
+                if not my_reacted:
+                    continue
+
+                try:
+                    await app.send_reaction(chat_id=chat_id, message_id=message.id, emoji="")
+                    print(f"Removed reaction from msg {message.id} in chat {chat_id}")
+                    await asyncio.sleep(0.05)
+                except FloodWait as e:
+                    print(f"floodwait: sleeping {e.x}s")
+                    await asyncio.sleep(e.x)
+                except RPCError as e:
+                    print(f"rpcerr from msg {message.id}: {e}")
+                except Exception as e:
+                    print(f"err for msg {message.id}: {e}")
 
 async def main():
     try:
