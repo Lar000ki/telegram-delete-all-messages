@@ -47,7 +47,7 @@ class Cleaner:
 
     async def select_groups(self, recursive=0):
         chats = await self.get_all_chats()
-        groups = [c for c in chats if c.type.name in ('GROUP', 'SUPERGROUP', 'PRIVATE')]
+        groups = [c for c in chats if c.type.name in ('GROUP', 'SUPERGROUP')]
 
         print('Delete all your messages in')
         for i, group in enumerate(groups):
