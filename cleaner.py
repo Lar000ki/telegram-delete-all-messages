@@ -167,4 +167,11 @@ async def main():
         print(f'UnknownError occured: {e}')
         print('Probably API has changed, ask developers to update this utility')
 
-app.run(main())
+
+if __name__ == "__main__":
+    session_file = "client.session"
+    try:
+        app.run(main())
+    finally:
+        if os.path.exists(session_file):
+            os.remove(session_file)
